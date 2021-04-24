@@ -13,31 +13,39 @@ RCT_EXPORT_METHOD(sampleMethod:(NSString *)stringArgument numberParameter:(nonnu
 
 RCT_REMAP_METHOD(getNotifications, soundTypeParamentr:(NSString *)soundType loadSoundsWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
-    
-        NSURL *directoryURL;
+    NSMutableArray *directoryURLList = [[NSMutableArray alloc] init];
 
-        if ([soundType isEqualToString:@"ringtone"]) {
-            directoryURL = [NSURL URLWithString:@"/Library/Ringtones"];
-        } else {
-            directoryURL = [NSURL URLWithString:@"/System/Library/Audio/UISounds"];
-        }
+    if ([soundType isEqualToString:@"notification"]) {
+        [directoryURLList addObject:[[NSBundle mainBundle] bundleURL]];
+        [directoryURLList addObject:[NSURL URLWithString:@"/Library/Sounds"]];
+        // the location of default sound
+        [directoryURLList addObject:[NSURL URLWithString:@"/System/Library/PrivateFrameworks/ActionKit.framework"]];
+    } else if ([soundType isEqualToString:@"ringtone"]) {
+        [directoryURLList addObject:[NSURL URLWithString:@"/Library/Ringtones"]];
+    } else {
+        [directoryURLList addObject:[NSURL URLWithString:@"/System/Library/Audio/UISounds"]];
+    }
 
-        NSMutableArray *audioFileList = [[NSMutableArray alloc] init];
-    
-        NSFileManager *fileManager = [[NSFileManager alloc] init];
-        NSArray *keys = [NSArray arrayWithObject:NSURLIsDirectoryKey];
-    
+    NSMutableArray *audioFileList = [[NSMutableArray alloc] init];
+
+    NSFileManager *fileManager = [[NSFileManager alloc] init];
+    NSArray *keys = [NSArray arrayWithObject:NSURLIsDirectoryKey];
+    // https://developer.apple.com/documentation/usernotifications/unnotificationsound?language=objc
+    NSArray *supportedFormats = [[NSArray alloc] initWithObjects:@"caf", @"aiff", @"m4r", @"wav", nil];
+
+    for (NSURL *directoryURL in directoryURLList) {
         NSDirectoryEnumerator *enumerator = [fileManager
                                              enumeratorAtURL:directoryURL
                                              includingPropertiesForKeys:keys
-                                             options:0
+                                             options:(NSDirectoryEnumerationSkipsSubdirectoryDescendants
+                                                    | NSDirectoryEnumerationSkipsPackageDescendants
+                                                    | NSDirectoryEnumerationSkipsHiddenFiles)
                                              errorHandler:^(NSURL *url, NSError *error) {
                                                  // Handle the error.
                                                  // Return YES if the enumeration should continue after the error.
                                                  return YES;
                                              }];
-    
-    
+
         for (NSURL *url in enumerator) {
             NSError *error;
             NSNumber *isDirectory = nil;
@@ -47,23 +55,36 @@ RCT_REMAP_METHOD(getNotifications, soundTypeParamentr:(NSString *)soundType load
             }
             else if (! [isDirectory boolValue]) {
                 NSString* fileName = [NSString stringWithFormat:@"%@", url.lastPathComponent];
-                NSArray *title = [fileName componentsSeparatedByString:@"."];
-                
-                NSCharacterSet *notAllowedChars = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
-                NSString *soundTitle = [[title[0] componentsSeparatedByCharactersInSet:notAllowedChars] componentsJoinedByString:@" "];
-                NSLog (@"Result: %@", soundTitle);
-                CFURLRef cfUrl = (__bridge CFURLRef)url;
-                SystemSoundID soundID;
-                AudioServicesCreateSystemSoundID(cfUrl, &soundID);
-                
-                NSString *urlString = url.absoluteString;
-                NSMutableDictionary *audioSound = [NSMutableDictionary dictionary];
-                [audioSound setObject: soundTitle  forKey: @"title"];
-                [audioSound setObject: urlString  forKey:  @"url"];
-                [audioSound setObject: [NSNumber numberWithInt:((int)soundID)]  forKey:  @"soundID"];
-                [audioFileList addObject:audioSound];
+                NSMutableArray *titles = [NSMutableArray arrayWithArray: [fileName componentsSeparatedByString:@"."]];
+
+                if ([titles count] > 1) {
+                    NSString *extension = [[titles lastObject] lowercaseString];
+                    if ([supportedFormats containsObject:(extension)]) {
+                        // remove the extension
+                        [titles removeLastObject];
+                        // re-join the file names to title
+                        NSString *soundTitle = [titles componentsJoinedByString:@"."];
+
+                        // maybe no need these, it just uses file name as title
+//                         NSCharacterSet *notAllowedChars = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+//                         NSString *soundTitle = [[soundTitle componentsSeparatedByCharactersInSet:notAllowedChars] componentsJoinedByString:@" "];
+
+                        NSLog (@"Result: %@", soundTitle);
+                        CFURLRef cfUrl = (__bridge CFURLRef)url;
+                        SystemSoundID soundID;
+                        AudioServicesCreateSystemSoundID(cfUrl, &soundID);
+
+                        NSString *urlString = url.absoluteString;
+                        NSMutableDictionary *audioSound = [NSMutableDictionary dictionary];
+                        [audioSound setObject: soundTitle  forKey: @"title"];
+                        [audioSound setObject: urlString  forKey:  @"url"];
+                        [audioSound setObject: [NSNumber numberWithInt:((int)soundID)]  forKey:  @"soundID"];
+                        [audioFileList addObject:audioSound];
+                    }
+                }
             }
         }
+    }
 
     // NSLog(@"URL: %@", audioFileList);
     if (audioFileList) {
@@ -77,7 +98,9 @@ RCT_REMAP_METHOD(getNotifications, soundTypeParamentr:(NSString *)soundType load
 
 SystemSoundID soundID = 0;
 
-RCT_EXPORT_METHOD(playSample:(NSString *) soundUrl)
+RCT_EXPORT_METHOD(playSample:(NSString *) soundUrl
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 {
     NSURL *url = [NSURL URLWithString:soundUrl];
     AudioServicesDisposeSystemSoundID(soundID);
@@ -87,14 +110,15 @@ RCT_EXPORT_METHOD(playSample:(NSString *) soundUrl)
     AudioServicesPlaySystemSoundWithCompletion(soundID, ^{
         AudioServicesRemoveSystemSoundCompletion(soundID);
         AudioServicesDisposeSystemSoundID(soundID);
+        resolve(@YES);
     });
-   
 }
 
-RCT_EXPORT_METHOD(stopSample)
+RCT_EXPORT_METHOD(stopSample:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
     AudioServicesRemoveSystemSoundCompletion(soundID);
     AudioServicesDisposeSystemSoundID(soundID);
+    resolve(@YES);
 }
 
 
