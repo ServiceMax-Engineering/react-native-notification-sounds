@@ -38,8 +38,8 @@ public class NotificationSoundsModule extends ReactContextBaseJavaModule impleme
     private static final String ATTR_CLASS_NAME = "className";
     private static final String ATTR_CHANNEL_NAME = "channelName";
     private static final String ATTR_CHANNEL_ID = "channelId";
-    private static final String NOTIFICATION_CHANNEL_ID = "rn-push-notification-channel-id";
-    private static final String NOTIFICATION_CHANNEL_NAME = "rn-push-notification-channel";
+    private static final String NOTIFICATION_CHANNEL_ID = "svmxgo_notifications";
+    private static final String NOTIFICATION_CHANNEL_NAME = "Go Notifications";
     Promise promise;
     String channelId;
     private ReactApplicationContext reactContext;
